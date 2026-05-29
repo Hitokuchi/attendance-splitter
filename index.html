@@ -37,7 +37,10 @@
               <h2>入力</h2>
               <p>契約は上から順に連続して割り当てます。</p>
             </div>
-            <button class="ghost-button" type="button" id="reset-contracts">初期化</button>
+            <div class="input-actions">
+              <button class="ghost-button" type="button" id="import-clipboard">インポート</button>
+              <button class="ghost-button" type="button" id="reset-contracts">初期化</button>
+            </div>
           </div>
 
           <label class="field month-field">
@@ -51,7 +54,8 @@
                 <tr>
                   <th scope="col">順</th>
                   <th scope="col">契約名</th>
-                  <th scope="col">割合 n</th>
+                  <th scope="col">契約No</th>
+                  <th scope="col">発注数量</th>
                   <th scope="col">%</th>
                 </tr>
               </thead>
@@ -86,8 +90,11 @@
               <p id="month-summary">対象月を選んで生成してください。</p>
             </div>
             <div class="actions">
-              <button class="ghost-button" type="button" id="copy-csv" disabled>コピー</button>
-              <button class="ghost-button" type="button" id="download-csv" disabled>ダウンロード</button>
+              <label class="print-option">
+                <input type="checkbox" id="fit-one-page" />
+                <span>PDFを1枚に収める</span>
+              </label>
+              <button class="ghost-button" type="button" id="print-pdf" disabled>PDF出力</button>
             </div>
           </div>
 
@@ -112,41 +119,43 @@
               <thead>
                 <tr>
                   <th scope="col">契約名</th>
-                  <th scope="col">割合 n</th>
+                  <th scope="col">契約No</th>
+                  <th scope="col">発注数量</th>
                   <th scope="col">合計分数</th>
                   <th scope="col">時間換算</th>
                 </tr>
               </thead>
               <tbody id="allocation-body">
                 <tr>
-                  <td colspan="4" class="empty compact">生成後に表示されます。</td>
+                  <td colspan="5" class="empty compact">生成後に表示されます。</td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <div class="preview-wrap">
+            <h3>入力時間</h3>
             <table class="preview-table">
               <thead>
                 <tr>
-                  <th scope="col">date</th>
-                  <th scope="col">start_time</th>
-                  <th scope="col">end_time</th>
-                  <th scope="col">contract_name</th>
+                  <th scope="col">日付</th>
+                  <th scope="col">開始時刻</th>
+                  <th scope="col">終了時刻</th>
+                  <th scope="col">契約名</th>
+                  <th scope="col">契約No</th>
                 </tr>
               </thead>
               <tbody id="preview-body">
                 <tr>
-                  <td colspan="4" class="empty">生成結果がここに表示されます。</td>
+                  <td colspan="5" class="empty">生成結果がここに表示されます。</td>
                 </tr>
               </tbody>
             </table>
           </div>
-
-          <textarea id="csv-output" class="csv-output" readonly spellcheck="false" aria-label="CSV output"></textarea>
         </section>
       </section>
     </main>
+    <div id="pdf-export-root" class="pdf-export-root" aria-hidden="true"></div>
 
     <script src="./app.js"></script>
   </body>

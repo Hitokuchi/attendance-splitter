@@ -7,14 +7,14 @@ const CONTRACT_COUNT = 8;
 const HOLIDAY_API = "https://holidays-jp.github.io/api/v1/date.json";
 
 const defaultContracts = [
-  { name: "契約A", ratio: 0.1 },
-  { name: "契約B", ratio: 0.2 },
-  { name: "契約C", ratio: 0.05 },
-  { name: "契約D", ratio: 0.05 },
-  { name: "契約E", ratio: 0.05 },
-  { name: "契約F", ratio: 0.05 },
-  { name: "契約G", ratio: 0.15 },
-  { name: "契約H", ratio: 0.35 },
+  { name: "契約A", no: "A", ratio: 0.125 },
+  { name: "契約B", no: "B", ratio: 0.125 },
+  { name: "契約C", no: "C", ratio: 0.125 },
+  { name: "契約D", no: "D", ratio: 0.125 },
+  { name: "契約E", no: "E", ratio: 0.125 },
+  { name: "契約F", no: "F", ratio: 0.125 },
+  { name: "契約G", no: "G", ratio: 0.125 },
+  { name: "契約H", no: "H", ratio: 0.125 },
 ];
 
 const elements = {
@@ -25,6 +25,7 @@ const elements = {
   ratioTotal: document.querySelector("#ratio-total"),
   holidayStatus: document.querySelector("#holiday-status"),
   messages: document.querySelector("#messages"),
+  importClipboard: document.querySelector("#import-clipboard"),
   resetContracts: document.querySelector("#reset-contracts"),
   monthSummary: document.querySelector("#month-summary"),
   workdayCount: document.querySelector("#workday-count"),
@@ -32,13 +33,13 @@ const elements = {
   rowCount: document.querySelector("#row-count"),
   allocationBody: document.querySelector("#allocation-body"),
   previewBody: document.querySelector("#preview-body"),
-  csvOutput: document.querySelector("#csv-output"),
-  copyCsv: document.querySelector("#copy-csv"),
-  downloadCsv: document.querySelector("#download-csv"),
+  printPdf: document.querySelector("#print-pdf"),
+  fitOnePage: document.querySelector("#fit-one-page"),
+  pdfExportRoot: document.querySelector("#pdf-export-root"),
 };
 
 let holidayCache = null;
-let lastCsv = "";
+let lastExport = null;
 
 function init() {
   elements.targetMonth.value = getCurrentMonthValue();
@@ -51,13 +52,59 @@ function init() {
     generate();
   });
   elements.contractBody.addEventListener("input", updateRatioTotal);
+  elements.importClipboard.addEventListener("click", importFromClipboard);
   elements.resetContracts.addEventListener("click", () => {
     renderContracts(defaultContracts);
     updateRatioTotal();
     clearMessage();
   });
-  elements.copyCsv.addEventListener("click", copyCsv);
-  elements.downloadCsv.addEventListener("click", downloadCsv);
+  elements.printPdf.addEventListener("click", printPdf);
+}
+
+async function importFromClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    const contracts = parseClipboardContracts(text);
+    renderContracts(contracts);
+    updateRatioTotal();
+    clearOutput();
+    setMessage("クリップボードからインポートしました。", "");
+  } catch (error) {
+    setMessage(error.message, "error");
+  }
+}
+
+function parseClipboardContracts(text) {
+  const lines = text
+    .trim()
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0);
+
+  if (lines.length !== CONTRACT_COUNT) {
+    throw new Error("インポートは8行のタブ区切りテキストが必要です。");
+  }
+
+  const contracts = lines.map((line, index) => {
+    const columns = line.split("\t").map((column) => column.trim());
+    if (columns.length !== 3) {
+      throw new Error(`${index + 1}行目は 契約名・契約No・発注数量 の3列にしてください。`);
+    }
+
+    const [name, no, ratioText] = columns;
+    const ratio = Number(ratioText);
+    if (!name || !no || !Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+      throw new Error(`${index + 1}行目の内容を確認してください。`);
+    }
+
+    return { name, no, ratio };
+  });
+
+  const total = contracts.reduce((sum, contract) => sum + contract.ratio, 0);
+  if (Math.abs(total - 1) > 0.000001) {
+    throw new Error(`発注数量の合計を1にしてください。現在は ${total.toFixed(6)} です。`);
+  }
+
+  return contracts;
 }
 
 function getCurrentMonthValue() {
@@ -72,6 +119,7 @@ function renderContracts(contracts) {
     row.innerHTML = `
       <td>${index + 1}</td>
       <td><input type="text" class="contract-name" value="${escapeAttribute(contract.name)}" required /></td>
+      <td><input type="text" class="contract-no" value="${escapeAttribute(contract.no)}" required /></td>
       <td><input type="number" class="contract-ratio" value="${formatRatio(contract.ratio)}" min="0" max="1" step="0.000001" required /></td>
       <td class="percent-cell">12.50%</td>
     `;
@@ -118,16 +166,20 @@ function readContracts({ allowInvalid = false } = {}) {
   const rows = [...elements.contractBody.querySelectorAll("tr")];
   return rows.map((row, index) => {
     const name = row.querySelector(".contract-name").value.trim();
+    const no = row.querySelector(".contract-no").value.trim();
     const ratio = Number(row.querySelector(".contract-ratio").value);
     if (!allowInvalid) {
       if (!name) {
         throw new Error(`${index + 1}行目の契約名を入力してください。`);
       }
+      if (!no) {
+        throw new Error(`${name} の契約Noを入力してください。`);
+      }
       if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
         throw new Error(`${name || `${index + 1}行目`} の割合は0以上1以下で入力してください。`);
       }
     }
-    return { name, ratio };
+    return { name, no, ratio };
   });
 }
 
@@ -154,9 +206,9 @@ function generate() {
     const totalMinutes = workdays.length * DAILY_WORK_MINUTES;
     const allocations = allocateMinutes(contracts, totalMinutes);
     const rows = buildRows(workdays, allocations);
-    lastCsv = toCsv(rows);
+    lastExport = { year, month, allocations, rows };
 
-    renderOutput({ year, month, workdays, totalMinutes, allocations, rows, csv: lastCsv });
+    renderOutput({ year, month, workdays, totalMinutes, allocations, rows });
     setMessage("生成しました。", "");
   } catch (error) {
     setMessage(error.message, "error");
@@ -203,6 +255,7 @@ function allocateMinutes(contracts, totalMinutes) {
     return {
       index,
       name: contract.name,
+      no: contract.no,
       ratio: contract.ratio,
       minutes: Math.floor(exact),
       remainder: exact - Math.floor(exact),
@@ -249,6 +302,7 @@ function buildRows(workdays, allocations) {
         start_time: formatTime(cursor),
         end_time: formatTime(end),
         contract_name: allocation.name,
+        contract_no: allocation.no,
       });
 
       minutesLeft -= chunk;
@@ -303,14 +357,12 @@ function addWorkingMinutes(start, minutesToAdd) {
   return cursor;
 }
 
-function renderOutput({ year, month, workdays, totalMinutes, allocations, rows, csv }) {
+function renderOutput({ year, month, workdays, totalMinutes, allocations, rows }) {
   elements.monthSummary.textContent = `${year}年${month}月のCSVです。`;
   elements.workdayCount.textContent = workdays.length.toString();
   elements.totalMinutes.textContent = totalMinutes.toLocaleString("ja-JP");
   elements.rowCount.textContent = rows.length.toString();
-  elements.csvOutput.value = csv;
-  elements.copyCsv.disabled = rows.length === 0;
-  elements.downloadCsv.disabled = rows.length === 0;
+  elements.printPdf.disabled = rows.length === 0;
 
   renderAllocationSummary(allocations);
 
@@ -322,6 +374,7 @@ function renderOutput({ year, month, workdays, totalMinutes, allocations, rows, 
       <td>${row.start_time}</td>
       <td>${row.end_time}</td>
       <td>${escapeHtml(row.contract_name)}</td>
+      <td>${escapeHtml(row.contract_no)}</td>
     `;
     elements.previewBody.append(tr);
   });
@@ -333,6 +386,7 @@ function renderAllocationSummary(allocations) {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${escapeHtml(allocation.name)}</td>
+      <td>${escapeHtml(allocation.no)}</td>
       <td>${formatRatio(allocation.ratio)}</td>
       <td>${allocation.minutes.toLocaleString("ja-JP")}</td>
       <td>${formatDuration(allocation.minutes)}</td>
@@ -341,37 +395,96 @@ function renderAllocationSummary(allocations) {
   });
 }
 
-function toCsv(rows) {
-  const header = ["date", "start_time", "end_time", "contract_name"];
-  const lines = rows.map((row) =>
-    [row.date, row.start_time, row.end_time, row.contract_name].map(csvEscape).join(","),
-  );
-  return [header.join(","), ...lines].join("\n");
+function clearOutput() {
+  lastExport = null;
+  elements.monthSummary.textContent = "対象月を選んで生成してください。";
+  elements.workdayCount.textContent = "0";
+  elements.totalMinutes.textContent = "0";
+  elements.rowCount.textContent = "0";
+  elements.printPdf.disabled = true;
+  elements.allocationBody.innerHTML = '<tr><td colspan="5" class="empty compact">生成後に表示されます。</td></tr>';
+  elements.previewBody.innerHTML = '<tr><td colspan="5" class="empty">生成結果がここに表示されます。</td></tr>';
+  elements.pdfExportRoot.innerHTML = "";
 }
 
-function csvEscape(value) {
-  const text = String(value);
-  if (/[",\n\r]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
-  }
-  return text;
+function printPdf() {
+  if (!lastExport) return;
+
+  const fitClass = elements.fitOnePage.checked ? " fit-one-page" : "";
+  elements.pdfExportRoot.innerHTML = `
+    <section class="pdf-page${fitClass}">
+      <h1>${lastExport.year}年${lastExport.month}月 契約別合計</h1>
+      ${buildAllocationPrintTable(lastExport.allocations)}
+    </section>
+    <section class="pdf-page${fitClass}">
+      <h1>${lastExport.year}年${lastExport.month}月 入力時間</h1>
+      ${buildPreviewPrintTable(lastExport.rows)}
+    </section>
+  `;
+
+  window.print();
 }
 
-async function copyCsv() {
-  if (!lastCsv) return;
-  await navigator.clipboard.writeText(lastCsv);
-  setMessage("CSVをクリップボードにコピーしました。", "");
+function buildAllocationPrintTable(allocations) {
+  const rows = allocations
+    .map(
+      (allocation) => `
+        <tr>
+          <td>${escapeHtml(allocation.name)}</td>
+          <td>${escapeHtml(allocation.no)}</td>
+          <td>${formatRatio(allocation.ratio)}</td>
+          <td>${allocation.minutes.toLocaleString("ja-JP")}</td>
+          <td>${formatDuration(allocation.minutes)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>契約名</th>
+          <th>契約No</th>
+          <th>発注数量</th>
+          <th>合計分数</th>
+          <th>時間換算</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
 }
 
-function downloadCsv() {
-  if (!lastCsv) return;
-  const blob = new Blob([lastCsv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `attendance-${elements.targetMonth.value}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
+function buildPreviewPrintTable(rows) {
+  const tableRows = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>${row.date}</td>
+          <td>${row.start_time}</td>
+          <td>${row.end_time}</td>
+          <td>${escapeHtml(row.contract_name)}</td>
+          <td>${escapeHtml(row.contract_no)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>日付</th>
+          <th>開始時刻</th>
+          <th>終了時刻</th>
+          <th>契約名</th>
+          <th>契約No</th>
+        </tr>
+      </thead>
+      <tbody>${tableRows}</tbody>
+    </table>
+  `;
 }
 
 function setMessage(message, type) {
