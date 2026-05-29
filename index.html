@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>勤怠CSV分配ツール</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero" aria-labelledby="app-title">
+        <div>
+          <p class="eyebrow">Attendance CSV Splitter</p>
+          <h1 id="app-title">契約別の勤怠入力時間を月単位で自動分配</h1>
+        </div>
+        <div class="summary-strip" aria-live="polite">
+          <div>
+            <span>勤務時間</span>
+            <strong>09:00-17:40</strong>
+          </div>
+          <div>
+            <span>休憩</span>
+            <strong>11:50-12:40</strong>
+          </div>
+          <div>
+            <span>1日</span>
+            <strong>470分</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace">
+        <form id="planner-form" class="panel input-panel">
+          <div class="panel-header">
+            <div>
+              <h2>入力</h2>
+              <p>契約は上から順に連続して割り当てます。</p>
+            </div>
+            <button class="ghost-button" type="button" id="reset-contracts">初期化</button>
+          </div>
+
+          <label class="field month-field">
+            <span>対象月</span>
+            <input id="target-month" type="month" required />
+          </label>
+
+          <div class="contract-table-wrap">
+            <table class="contract-table">
+              <thead>
+                <tr>
+                  <th scope="col">順</th>
+                  <th scope="col">契約名</th>
+                  <th scope="col">割合 n</th>
+                  <th scope="col">%</th>
+                </tr>
+              </thead>
+              <tbody id="contract-body"></tbody>
+            </table>
+          </div>
+
+          <label class="field">
+            <span>追加の休業日</span>
+            <textarea id="manual-holidays" rows="3" placeholder="YYYY-MM-DD を1行ずつ入力"></textarea>
+          </label>
+
+          <div class="status-grid">
+            <div>
+              <span>比率合計</span>
+              <strong id="ratio-total">1.000000</strong>
+            </div>
+            <div>
+              <span>祝日</span>
+              <strong id="holiday-status">未取得</strong>
+            </div>
+          </div>
+
+          <div id="messages" class="messages" role="status" aria-live="polite"></div>
+          <button class="primary-button" type="submit">CSVを生成</button>
+        </form>
+
+        <section class="panel output-panel" aria-labelledby="output-title">
+          <div class="panel-header">
+            <div>
+              <h2 id="output-title">出力</h2>
+              <p id="month-summary">対象月を選んで生成してください。</p>
+            </div>
+            <div class="actions">
+              <button class="ghost-button" type="button" id="copy-csv" disabled>コピー</button>
+              <button class="ghost-button" type="button" id="download-csv" disabled>ダウンロード</button>
+            </div>
+          </div>
+
+          <div class="stats" aria-live="polite">
+            <div>
+              <span>営業日</span>
+              <strong id="workday-count">0</strong>
+            </div>
+            <div>
+              <span>総勤務分</span>
+              <strong id="total-minutes">0</strong>
+            </div>
+            <div>
+              <span>CSV行</span>
+              <strong id="row-count">0</strong>
+            </div>
+          </div>
+
+          <div class="allocation-wrap">
+            <h3>契約別合計</h3>
+            <table class="allocation-table">
+              <thead>
+                <tr>
+                  <th scope="col">契約名</th>
+                  <th scope="col">割合 n</th>
+                  <th scope="col">合計分数</th>
+                  <th scope="col">時間換算</th>
+                </tr>
+              </thead>
+              <tbody id="allocation-body">
+                <tr>
+                  <td colspan="4" class="empty compact">生成後に表示されます。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="preview-wrap">
+            <table class="preview-table">
+              <thead>
+                <tr>
+                  <th scope="col">date</th>
+                  <th scope="col">start_time</th>
+                  <th scope="col">end_time</th>
+                  <th scope="col">contract_name</th>
+                </tr>
+              </thead>
+              <tbody id="preview-body">
+                <tr>
+                  <td colspan="4" class="empty">生成結果がここに表示されます。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <textarea id="csv-output" class="csv-output" readonly spellcheck="false" aria-label="CSV output"></textarea>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
