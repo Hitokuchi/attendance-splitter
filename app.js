@@ -35,6 +35,7 @@ const elements = {
   previewBody: document.querySelector("#preview-body"),
   printPdf: document.querySelector("#print-pdf"),
   fitOnePage: document.querySelector("#fit-one-page"),
+  hideContractNamePdf: document.querySelector("#hide-contract-name-pdf"),
   pdfExportRoot: document.querySelector("#pdf-export-root"),
 };
 
@@ -411,26 +412,27 @@ function printPdf() {
   if (!lastExport) return;
 
   const fitClass = elements.fitOnePage.checked ? " fit-one-page" : "";
+  const hideContractName = elements.hideContractNamePdf.checked;
   elements.pdfExportRoot.innerHTML = `
     <section class="pdf-page${fitClass}">
       <h1>${lastExport.year}年${lastExport.month}月 契約別合計</h1>
-      ${buildAllocationPrintTable(lastExport.allocations)}
+      ${buildAllocationPrintTable(lastExport.allocations, hideContractName)}
     </section>
     <section class="pdf-page${fitClass}">
       <h1>${lastExport.year}年${lastExport.month}月 入力時間</h1>
-      ${buildPreviewPrintTable(lastExport.rows)}
+      ${buildPreviewPrintTable(lastExport.rows, hideContractName)}
     </section>
   `;
 
   window.print();
 }
 
-function buildAllocationPrintTable(allocations) {
+function buildAllocationPrintTable(allocations, hideContractName = false) {
   const rows = allocations
     .map(
       (allocation) => `
         <tr>
-          <td>${escapeHtml(allocation.name)}</td>
+          ${hideContractName ? "" : `<td>${escapeHtml(allocation.name)}</td>`}
           <td>${escapeHtml(allocation.no)}</td>
           <td>${formatRatio(allocation.ratio)}</td>
           <td>${allocation.minutes.toLocaleString("ja-JP")}</td>
@@ -444,7 +446,7 @@ function buildAllocationPrintTable(allocations) {
     <table>
       <thead>
         <tr>
-          <th>契約名</th>
+          ${hideContractName ? "" : "<th>契約名</th>"}
           <th>契約No</th>
           <th>発注数量</th>
           <th>合計分数</th>
@@ -456,7 +458,7 @@ function buildAllocationPrintTable(allocations) {
   `;
 }
 
-function buildPreviewPrintTable(rows) {
+function buildPreviewPrintTable(rows, hideContractName = false) {
   const tableRows = rows
     .map(
       (row) => `
@@ -464,7 +466,7 @@ function buildPreviewPrintTable(rows) {
           <td>${row.date}</td>
           <td>${row.start_time}</td>
           <td>${row.end_time}</td>
-          <td>${escapeHtml(row.contract_name)}</td>
+          ${hideContractName ? "" : `<td>${escapeHtml(row.contract_name)}</td>`}
           <td>${escapeHtml(row.contract_no)}</td>
         </tr>
       `,
@@ -478,7 +480,7 @@ function buildPreviewPrintTable(rows) {
           <th>日付</th>
           <th>開始時刻</th>
           <th>終了時刻</th>
-          <th>契約名</th>
+          ${hideContractName ? "" : "<th>契約名</th>"}
           <th>契約No</th>
         </tr>
       </thead>
