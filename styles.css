@@ -497,6 +497,11 @@ button:disabled {
     border-bottom: 1px solid #cfd8d3;
   }
 
+  .pdf-page th:last-child,
+  .pdf-page td:last-child {
+    border-right: 1px solid #cfd8d3;
+  }
+
   .pdf-page th {
     background: #eef4f1 !important;
     color: #1f2a25;
