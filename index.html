@@ -68,6 +68,18 @@
             <textarea id="manual-holidays" rows="3" placeholder="YYYY-MM-DD を1行ずつ入力"></textarea>
           </label>
 
+          <details class="holiday-picker">
+            <summary>カレンダーで休業日を選ぶ</summary>
+            <div class="holiday-calendar">
+              <p id="holiday-calendar-month" class="calendar-month" aria-live="polite"></p>
+              <div class="calendar-weekdays" aria-hidden="true">
+                <span>日</span><span>月</span><span>火</span><span>水</span><span>木</span><span>金</span><span>土</span>
+              </div>
+              <div id="holiday-calendar-grid" class="calendar-grid" role="group" aria-labelledby="holiday-calendar-month"></div>
+              <p class="calendar-note">日付をクリックして追加・解除できます。グレーは土日・祝日です。</p>
+            </div>
+          </details>
+
           <div class="status-grid">
             <div>
               <span>比率合計</span>

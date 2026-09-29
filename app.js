@@ -23,6 +23,8 @@ const elements = {
   targetMonth: document.querySelector("#target-month"),
   contractBody: document.querySelector("#contract-body"),
   manualHolidays: document.querySelector("#manual-holidays"),
+  holidayCalendar: document.querySelector("#holiday-calendar-grid"),
+  holidayCalendarMonth: document.querySelector("#holiday-calendar-month"),
   ratioTotal: document.querySelector("#ratio-total"),
   holidayStatus: document.querySelector("#holiday-status"),
   messages: document.querySelector("#messages"),
@@ -52,6 +54,7 @@ function init() {
   elements.targetMonth.value = getCurrentMonthValue();
   renderContracts(defaultContracts);
   updateRatioTotal();
+  renderHolidayCalendar();
   holidayLoad = loadHolidays();
 
   elements.form.addEventListener("submit", (event) => {
@@ -60,6 +63,15 @@ function init() {
   });
   elements.contractBody.addEventListener("input", updateRatioTotal);
   elements.form.addEventListener("input", clearOutput);
+  elements.targetMonth.addEventListener("input", renderHolidayCalendar);
+  elements.manualHolidays.addEventListener("input", renderHolidayCalendar);
+  elements.holidayCalendar.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-holiday-date]");
+    if (!button) return;
+    const date = button.dataset.holidayDate;
+    toggleManualHoliday(date);
+    elements.holidayCalendar.querySelector(`[data-holiday-date="${date}"]`).focus();
+  });
   elements.importClipboard.addEventListener("click", importFromClipboard);
   elements.resetContracts.addEventListener("click", () => {
     renderContracts(defaultContracts);
@@ -172,7 +184,46 @@ async function loadHolidays() {
     holidayCache = {};
     elements.holidayStatus.textContent = "手入力のみ";
     setMessage("祝日APIを取得できませんでした。追加の休業日に祝日を入力すれば計算できます。", "warn");
+  } finally {
+    renderHolidayCalendar();
   }
+}
+
+function readManualHolidays() {
+  return elements.manualHolidays.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function renderHolidayCalendar() {
+  const monthValue = elements.targetMonth.value;
+  elements.holidayCalendar.innerHTML = "";
+  if (!monthValue) {
+    elements.holidayCalendarMonth.textContent = "対象月を選択してください。";
+    return;
+  }
+
+  const [year, month] = monthValue.split("-").map(Number);
+  const selected = new Set(readManualHolidays());
+  elements.holidayCalendarMonth.textContent = `${year}年${month}月`;
+  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const lastDay = new Date(year, month, 0).getDate();
+  let html = '<span aria-hidden="true"></span>'.repeat(firstWeekday);
+  for (let day = 1; day <= lastDay; day += 1) {
+    const date = toIsoDate(year, month, day);
+    const weekday = new Date(year, month - 1, day).getDay();
+    const holiday = holidayCache?.[date];
+    const nonWorkday = weekday === 0 || weekday === 6 || Boolean(holiday);
+    const label = `${year}年${month}月${day}日${holiday ? ` ${holiday}` : ""}`;
+    html += `<button type="button" class="calendar-day${nonWorkday ? " is-nonworkday" : ""}" data-holiday-date="${date}" aria-pressed="${selected.has(date)}" aria-label="${escapeAttribute(label)}">${day}</button>`;
+  }
+  elements.holidayCalendar.innerHTML = html;
+}
+
+function toggleManualHoliday(date) {
+  const dates = new Set(readManualHolidays());
+  if (dates.has(date)) dates.delete(date);
+  else dates.add(date);
+  elements.manualHolidays.value = [...dates].sort().join("\n");
+  elements.manualHolidays.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function readContracts({ allowInvalid = false } = {}) {
@@ -236,10 +287,7 @@ async function generate() {
 
 function buildHolidaySet() {
   const apiDates = holidayCache ? Object.keys(holidayCache) : [];
-  const manualDates = elements.manualHolidays.value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const manualDates = readManualHolidays();
 
   const invalid = manualDates.filter((date) => !/^\d{4}-\d{2}-\d{2}$/.test(date));
   if (invalid.length > 0) {

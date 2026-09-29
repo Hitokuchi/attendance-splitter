@@ -266,6 +266,71 @@ tr:last-child td {
   margin-bottom: 14px;
 }
 
+.holiday-picker {
+  margin: -4px 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+}
+
+.holiday-picker summary {
+  padding: 10px 12px;
+  color: var(--accent-dark);
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.holiday-calendar {
+  padding: 0 12px 12px;
+}
+
+.calendar-month {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
+.calendar-grid,
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.calendar-weekdays {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.calendar-day {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: white;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.calendar-day.is-nonworkday {
+  background: #eef4f1;
+  color: var(--muted);
+}
+
+.calendar-day[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.calendar-note {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .messages {
   min-height: 22px;
   margin-bottom: 12px;
