@@ -98,7 +98,6 @@
                 <input type="checkbox" id="hide-contract-name-pdf" />
                 <span>PDFで契約名を隠す</span>
               </label>
-              <button class="ghost-button" type="button" id="copy-attendance-json" disabled>勤怠JSONをコピー</button>
               <button class="ghost-button" type="button" id="print-pdf" disabled>PDF出力</button>
             </div>
           </div>
@@ -128,11 +127,12 @@
                   <th scope="col">発注数量</th>
                   <th scope="col">合計分数</th>
                   <th scope="col">時間換算</th>
+                  <th scope="col">勤怠JSON</th>
                 </tr>
               </thead>
               <tbody id="allocation-body">
                 <tr>
-                  <td colspan="5" class="empty compact">生成後に表示されます。</td>
+                  <td colspan="6" class="empty compact">生成後に表示されます。</td>
                 </tr>
               </tbody>
             </table>

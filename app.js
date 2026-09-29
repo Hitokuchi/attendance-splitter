@@ -35,7 +35,6 @@ const elements = {
   allocationBody: document.querySelector("#allocation-body"),
   previewBody: document.querySelector("#preview-body"),
   printPdf: document.querySelector("#print-pdf"),
-  copyAttendanceJson: document.querySelector("#copy-attendance-json"),
   fitOnePage: document.querySelector("#fit-one-page"),
   hideContractNamePdf: document.querySelector("#hide-contract-name-pdf"),
   pdfExportRoot: document.querySelector("#pdf-export-root"),
@@ -69,7 +68,10 @@ function init() {
     clearMessage();
   });
   elements.printPdf.addEventListener("click", printPdf);
-  elements.copyAttendanceJson.addEventListener("click", copyAttendanceJson);
+  elements.allocationBody.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-contract-index]");
+    if (button) copyAttendanceJson(Number(button.dataset.contractIndex));
+  });
 }
 
 async function importFromClipboard() {
@@ -337,6 +339,8 @@ function buildRows(workdays, allocations) {
         end_time: formatTime(end),
         contract_name: allocation.name,
         contract_no: allocation.no,
+        contract_index: allocation.index,
+        break_minutes: end - cursor - chunk,
       });
 
       minutesLeft -= chunk;
@@ -409,7 +413,6 @@ function renderOutput({ year, month, workdays, totalMinutes, allocations, rows }
   elements.totalMinutes.textContent = totalMinutes.toLocaleString("ja-JP");
   elements.rowCount.textContent = rows.length.toString();
   elements.printPdf.disabled = rows.length === 0;
-  elements.copyAttendanceJson.disabled = rows.length === 0;
 
   renderAllocationSummary(allocations);
 
@@ -437,6 +440,7 @@ function renderAllocationSummary(allocations) {
       <td>${formatRatio(allocation.ratio)}</td>
       <td>${allocation.minutes.toLocaleString("ja-JP")}</td>
       <td>${formatDuration(allocation.minutes)}</td>
+      <td><button class="ghost-button" type="button" data-contract-index="${allocation.index}" aria-label="${escapeAttribute(`${allocation.name}（${allocation.no}）の勤怠JSONをコピー`)}">JSONをコピー</button></td>
     `;
     elements.allocationBody.append(tr);
   });
@@ -452,25 +456,37 @@ function clearOutput() {
   elements.totalMinutes.textContent = "0";
   elements.rowCount.textContent = "0";
   elements.printPdf.disabled = true;
-  elements.copyAttendanceJson.disabled = true;
-  elements.allocationBody.innerHTML = '<tr><td colspan="5" class="empty compact">生成後に表示されます。</td></tr>';
+  elements.allocationBody.innerHTML = '<tr><td colspan="6" class="empty compact">生成後に表示されます。</td></tr>';
   elements.previewBody.innerHTML = '<tr><td colspan="5" class="empty">生成結果がここに表示されます。</td></tr>';
   elements.pdfExportRoot.innerHTML = "";
 }
 
-async function copyAttendanceJson() {
-  if (!lastExport) return;
+function buildContractAttendance(workdays, rows, contractIndex) {
+  const contractRows = new Map(
+    rows.filter((row) => row.contract_index === contractIndex).map((row) => [row.date, row]),
+  );
+  return workdays.map((day) => {
+    const row = contractRows.get(day.csvDate);
+    if (!row) return { date: day.isoDate, type: "absence" };
+    return {
+      date: day.isoDate,
+      type: "normal",
+      start: row.start_time,
+      end: row.end_time,
+      break: formatTime(row.break_minutes),
+    };
+  });
+}
 
-  const attendance = lastExport.workdays.map((day) => ({
-    date: day.isoDate,
-    start: formatTime(WORK_START),
-    end: formatTime(day.workEnd),
-    break: formatTime(day.breakEnd - BREAK_START),
-  }));
+async function copyAttendanceJson(contractIndex) {
+  if (!lastExport) return;
+  const allocation = lastExport.allocations.find((item) => item.index === contractIndex);
+  if (!allocation) return;
+  const attendance = buildContractAttendance(lastExport.workdays, lastExport.rows, contractIndex);
 
   try {
     await navigator.clipboard.writeText(JSON.stringify(attendance, null, 2));
-    setMessage(`勤怠JSON（${attendance.length}日分）をクリップボードにコピーしました。`, "");
+    setMessage(`${allocation.name}（${allocation.no}）の勤怠JSON（${attendance.length}日分）をクリップボードにコピーしました。`, "");
   } catch (error) {
     setMessage("勤怠JSONをコピーできませんでした。ブラウザのクリップボード権限を確認してください。", "error");
   }

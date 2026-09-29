@@ -149,7 +149,7 @@ test("Generation respects API holidays and leave, updates summaries, and clears 
   assert.equal(elements.get("#daily-minutes").textContent, "470分");
   assert.equal(elements.get("#break-hours").textContent, "11:50-12:40");
   assert.equal(elements.get("#print-pdf").disabled, true);
-  assert.equal(elements.get("#copy-attendance-json").disabled, true);
+  assert.match(elements.get("#allocation-body").innerHTML, /colspan="6"/);
   assert.equal(vm.runInContext("lastExport", app), null);
 });
 
@@ -181,12 +181,12 @@ test("Zero workdays and adjustments past midnight show errors and disable export
     await app.generate();
     assert.match(elements.get("#messages").textContent, message);
     assert.equal(elements.get("#print-pdf").disabled, true);
-    assert.equal(elements.get("#copy-attendance-json").disabled, true);
+    assert.match(elements.get("#allocation-body").innerHTML, /colspan="6"/);
     assert.equal(vm.runInContext("lastExport", app), null);
   }
 });
 
-test("Clipboard JSON has one item per workday, adjusted end times and 60-minute breaks", async () => {
+test("Contract JSON covers all workdays with contract-specific times and absences", async () => {
   const { app, elements } = loadApp();
   elements.get("#target-month").value = "2026-06";
   elements.get("#manual-holidays").value = "2026-06-02\n2026-06-03\n2026-06-04\n2026-06-05";
@@ -195,22 +195,27 @@ test("Clipboard JSON has one item per workday, adjusted end times and 60-minute 
   const writes = [];
   app.navigator = { clipboard: { writeText: async (text) => { writes.push(text); } } };
   await app.generate();
-  assert.equal(elements.get("#copy-attendance-json").disabled, false);
-  await app.copyAttendanceJson();
+  await app.copyAttendanceJson(0);
   assert.equal(writes.length, 1);
   const attendance = JSON.parse(writes[0]);
   assert.equal(attendance.length, 17);
   assert.ok(vm.runInContext("lastExport.rows.length", app) > attendance.length);
-  assert.deepEqual(attendance[0], { date: "2026-06-08", start: "09:00", end: "18:15", break: "01:00" });
-  assert.deepEqual(attendance[2], { date: "2026-06-10", start: "09:00", end: "18:14", break: "01:00" });
+  assert.deepEqual(attendance[0], { date: "2026-06-08", type: "normal", start: "09:00", end: "18:15", break: "01:00" });
+  assert.deepEqual(attendance[1], { date: "2026-06-09", type: "normal", start: "09:00", end: "15:45", break: "01:00" });
+  assert.deepEqual(attendance[2], { date: "2026-06-10", type: "absence" });
   assert.equal(new Set(attendance.map((day) => day.date)).size, 17);
-  assert.ok(attendance.every((day) => Object.keys(day).join(",") === "date,start,end,break"));
-  assert.equal(attendance.reduce((total, day) => total + minutes(day.end) - minutes(day.start) - minutes(day.break), 0), 8400);
+  assert.ok(attendance.every((day) => Object.keys(day).join(",") === (day.type === "normal" ? "date,type,start,end,break" : "date,type")));
+  assert.equal(attendance.filter((day) => day.type === "normal").reduce((total, day) => total + minutes(day.end) - minutes(day.start) - minutes(day.break), 0), 840);
   assert.match(elements.get("#messages").textContent, /17日分.*コピーしました/);
+  assert.match(elements.get("#messages").textContent, /A（A）/);
+  await app.copyAttendanceJson(1);
+  const otherContract = JSON.parse(writes[1]);
+  assert.deepEqual(otherContract[0], { date: "2026-06-08", type: "absence" });
+  assert.deepEqual(otherContract[1], { date: "2026-06-09", type: "normal", start: "15:45", end: "18:15", break: "00:00" });
   app.clearOutput();
-  assert.equal(elements.get("#copy-attendance-json").disabled, true);
-  await app.copyAttendanceJson();
-  assert.equal(writes.length, 1, "Cleared results must not be copied");
+  assert.match(elements.get("#allocation-body").innerHTML, /colspan="6"/);
+  await app.copyAttendanceJson(0);
+  assert.equal(writes.length, 2, "Cleared results must not be copied");
 });
 
 test("Clipboard JSON for an unadjusted month has normal end times and zero-padded 50-minute breaks", async () => {
@@ -220,11 +225,11 @@ test("Clipboard JSON for an unadjusted month has normal end times and zero-padde
   let copied;
   app.navigator = { clipboard: { writeText: async (text) => { copied = text; } } };
   await app.generate();
-  await app.copyAttendanceJson();
+  await app.copyAttendanceJson(0);
   const attendance = JSON.parse(copied);
   assert.equal(attendance.length, 22);
-  assert.deepEqual(attendance[0], { date: "2026-06-01", start: "09:00", end: "17:40", break: "00:50" });
-  assert.ok(attendance.every((day) => day.start === "09:00" && day.end === "17:40" && day.break === "00:50"));
+  assert.deepEqual(attendance[0], { date: "2026-06-01", type: "normal", start: "09:00", end: "17:40", break: "00:50" });
+  assert.ok(attendance.every((day) => day.type === "normal" && day.start === "09:00" && day.end === "17:40" && day.break === "00:50"));
 });
 
 test("Clipboard permission errors show a message without discarding generated results", async () => {
@@ -233,9 +238,60 @@ test("Clipboard permission errors show a message without discarding generated re
   app.readContracts = () => [{ name: "A", no: "A", ratio: 1 }];
   app.navigator = { clipboard: { writeText: async () => { throw new Error("Permission denied"); } } };
   await app.generate();
-  await app.copyAttendanceJson();
+  await app.copyAttendanceJson(0);
   assert.match(elements.get("#messages").textContent, /コピーできませんでした/);
   assert.equal(elements.get("#messages").className, "messages error");
-  assert.equal(elements.get("#copy-attendance-json").disabled, false);
   assert.notEqual(vm.runInContext("lastExport", app), null);
+});
+
+test("Eight contract exports stay distinct with duplicate names and numbers, zero minutes and one minute", async () => {
+  const { app, elements } = loadApp();
+  elements.get("#target-month").value = "2026-06";
+  elements.get("#manual-holidays").value = "2026-06-01\n2026-06-02\n2026-06-03\n2026-06-04\n2026-06-05";
+  const ratios = [0, 0.000119, 0.124881, 0.125, 0.125, 0.125, 0.125, 0.375];
+  app.readContracts = () => ratios.map((ratio) => ({ name: "Same name", no: "Same number", ratio }));
+  const writes = [];
+  app.navigator = { clipboard: { writeText: async (text) => { writes.push(text); } } };
+  await app.generate();
+  const allocations = vm.runInContext("lastExport.allocations", app);
+  for (let index = 0; index < 8; index += 1) {
+    await app.copyAttendanceJson(index);
+    const attendance = JSON.parse(writes[index]);
+    assert.equal(attendance.length, 17);
+    assert.equal(new Set(attendance.map((day) => day.date)).size, 17);
+    for (const day of attendance) {
+      assert.deepEqual(Object.keys(day), day.type === "normal" ? ["date", "type", "start", "end", "break"] : ["date", "type"]);
+    }
+    const total = attendance.filter((day) => day.type === "normal").reduce((sum, day) => sum + minutes(day.end) - minutes(day.start) - minutes(day.break), 0);
+    assert.equal(total, allocations[index].minutes);
+  }
+  assert.equal(new Set(writes).size, 8);
+  assert.ok(JSON.parse(writes[0]).every((day) => day.type === "absence"));
+  assert.deepEqual(JSON.parse(writes[1])[0], { date: "2026-06-08", type: "normal", start: "09:00", end: "09:01", break: "00:00" });
+  const writeCount = writes.length;
+  await app.copyAttendanceJson(-1);
+  await app.copyAttendanceJson(8);
+  assert.equal(writes.length, writeCount);
+});
+
+test("Contract JSON excludes lunch between contracts and includes lunch within a contract", () => {
+  const { app } = loadApp();
+  const dates = [{ isoDate: "2026-06-01", csvDate: "2026/06/01" }, { isoDate: "2026-06-02", csvDate: "2026/06/02" }];
+  const schedule = app.buildWorkSchedule(dates, 960);
+  const allocations = [1, 169, 1, 789].map((amount, index) => ({ index, name: String(index), no: String(index), minutes: amount }));
+  const rows = app.buildRows(schedule, allocations);
+  const first = app.buildContractAttendance(schedule, rows, 0);
+  const beforeLunch = app.buildContractAttendance(schedule, rows, 1);
+  const afterLunch = app.buildContractAttendance(schedule, rows, 2);
+  const last = app.buildContractAttendance(schedule, rows, 3);
+  assert.equal(first[0].type, "normal");
+  assert.equal(first[0].end, "09:01");
+  assert.equal(first[1].type, "absence");
+  assert.equal(beforeLunch[0].end, "11:50");
+  assert.equal(beforeLunch[0].break, "00:00");
+  assert.equal(afterLunch[0].start, "12:50");
+  assert.equal(afterLunch[0].end, "12:51");
+  assert.equal(afterLunch[0].break, "00:00");
+  assert.equal(last[0].break, "00:00");
+  assert.equal(last[1].break, "01:00");
 });
