@@ -149,6 +149,7 @@ test("Generation respects API holidays and leave, updates summaries, and clears 
   assert.equal(elements.get("#daily-minutes").textContent, "470分");
   assert.equal(elements.get("#break-hours").textContent, "11:50-12:40");
   assert.equal(elements.get("#print-pdf").disabled, true);
+  assert.equal(elements.get("#copy-attendance-json").disabled, true);
   assert.equal(vm.runInContext("lastExport", app), null);
 });
 
@@ -180,6 +181,61 @@ test("Zero workdays and adjustments past midnight show errors and disable export
     await app.generate();
     assert.match(elements.get("#messages").textContent, message);
     assert.equal(elements.get("#print-pdf").disabled, true);
+    assert.equal(elements.get("#copy-attendance-json").disabled, true);
     assert.equal(vm.runInContext("lastExport", app), null);
   }
+});
+
+test("Clipboard JSON has one item per workday, adjusted end times and 60-minute breaks", async () => {
+  const { app, elements } = loadApp();
+  elements.get("#target-month").value = "2026-06";
+  elements.get("#manual-holidays").value = "2026-06-02\n2026-06-03\n2026-06-04\n2026-06-05";
+  vm.runInContext('holidayCache = {"2026-06-01": "祝日"}', app);
+  app.readContracts = () => [{ name: "A", no: "A", ratio: 0.1 }, { name: "B", no: "B", ratio: 0.9 }];
+  const writes = [];
+  app.navigator = { clipboard: { writeText: async (text) => { writes.push(text); } } };
+  await app.generate();
+  assert.equal(elements.get("#copy-attendance-json").disabled, false);
+  await app.copyAttendanceJson();
+  assert.equal(writes.length, 1);
+  const attendance = JSON.parse(writes[0]);
+  assert.equal(attendance.length, 17);
+  assert.ok(vm.runInContext("lastExport.rows.length", app) > attendance.length);
+  assert.deepEqual(attendance[0], { date: "2026-06-08", start: "09:00", end: "18:15", break: "01:00" });
+  assert.deepEqual(attendance[2], { date: "2026-06-10", start: "09:00", end: "18:14", break: "01:00" });
+  assert.equal(new Set(attendance.map((day) => day.date)).size, 17);
+  assert.ok(attendance.every((day) => Object.keys(day).join(",") === "date,start,end,break"));
+  assert.equal(attendance.reduce((total, day) => total + minutes(day.end) - minutes(day.start) - minutes(day.break), 0), 8400);
+  assert.match(elements.get("#messages").textContent, /17日分.*コピーしました/);
+  app.clearOutput();
+  assert.equal(elements.get("#copy-attendance-json").disabled, true);
+  await app.copyAttendanceJson();
+  assert.equal(writes.length, 1, "Cleared results must not be copied");
+});
+
+test("Clipboard JSON for an unadjusted month has normal end times and zero-padded 50-minute breaks", async () => {
+  const { app, elements } = loadApp();
+  elements.get("#target-month").value = "2026-06";
+  app.readContracts = () => [{ name: "A", no: "A", ratio: 1 }];
+  let copied;
+  app.navigator = { clipboard: { writeText: async (text) => { copied = text; } } };
+  await app.generate();
+  await app.copyAttendanceJson();
+  const attendance = JSON.parse(copied);
+  assert.equal(attendance.length, 22);
+  assert.deepEqual(attendance[0], { date: "2026-06-01", start: "09:00", end: "17:40", break: "00:50" });
+  assert.ok(attendance.every((day) => day.start === "09:00" && day.end === "17:40" && day.break === "00:50"));
+});
+
+test("Clipboard permission errors show a message without discarding generated results", async () => {
+  const { app, elements } = loadApp();
+  elements.get("#target-month").value = "2026-06";
+  app.readContracts = () => [{ name: "A", no: "A", ratio: 1 }];
+  app.navigator = { clipboard: { writeText: async () => { throw new Error("Permission denied"); } } };
+  await app.generate();
+  await app.copyAttendanceJson();
+  assert.match(elements.get("#messages").textContent, /コピーできませんでした/);
+  assert.equal(elements.get("#messages").className, "messages error");
+  assert.equal(elements.get("#copy-attendance-json").disabled, false);
+  assert.notEqual(vm.runInContext("lastExport", app), null);
 });

@@ -35,6 +35,7 @@ const elements = {
   allocationBody: document.querySelector("#allocation-body"),
   previewBody: document.querySelector("#preview-body"),
   printPdf: document.querySelector("#print-pdf"),
+  copyAttendanceJson: document.querySelector("#copy-attendance-json"),
   fitOnePage: document.querySelector("#fit-one-page"),
   hideContractNamePdf: document.querySelector("#hide-contract-name-pdf"),
   pdfExportRoot: document.querySelector("#pdf-export-root"),
@@ -68,6 +69,7 @@ function init() {
     clearMessage();
   });
   elements.printPdf.addEventListener("click", printPdf);
+  elements.copyAttendanceJson.addEventListener("click", copyAttendanceJson);
 }
 
 async function importFromClipboard() {
@@ -218,7 +220,7 @@ async function generate() {
     const workdays = buildWorkSchedule(dates, totalMinutes);
     const allocations = allocateMinutes(contracts, totalMinutes);
     const rows = buildRows(workdays, allocations);
-    lastExport = { year, month, allocations, rows };
+    lastExport = { year, month, workdays, allocations, rows };
 
     renderOutput({ year, month, workdays, totalMinutes, allocations, rows });
     setMessage("生成しました。", "");
@@ -407,6 +409,7 @@ function renderOutput({ year, month, workdays, totalMinutes, allocations, rows }
   elements.totalMinutes.textContent = totalMinutes.toLocaleString("ja-JP");
   elements.rowCount.textContent = rows.length.toString();
   elements.printPdf.disabled = rows.length === 0;
+  elements.copyAttendanceJson.disabled = rows.length === 0;
 
   renderAllocationSummary(allocations);
 
@@ -449,9 +452,28 @@ function clearOutput() {
   elements.totalMinutes.textContent = "0";
   elements.rowCount.textContent = "0";
   elements.printPdf.disabled = true;
+  elements.copyAttendanceJson.disabled = true;
   elements.allocationBody.innerHTML = '<tr><td colspan="5" class="empty compact">生成後に表示されます。</td></tr>';
   elements.previewBody.innerHTML = '<tr><td colspan="5" class="empty">生成結果がここに表示されます。</td></tr>';
   elements.pdfExportRoot.innerHTML = "";
+}
+
+async function copyAttendanceJson() {
+  if (!lastExport) return;
+
+  const attendance = lastExport.workdays.map((day) => ({
+    date: day.isoDate,
+    start: formatTime(WORK_START),
+    end: formatTime(day.workEnd),
+    break: formatTime(day.breakEnd - BREAK_START),
+  }));
+
+  try {
+    await navigator.clipboard.writeText(JSON.stringify(attendance, null, 2));
+    setMessage(`勤怠JSON（${attendance.length}日分）をクリップボードにコピーしました。`, "");
+  } catch (error) {
+    setMessage("勤怠JSONをコピーできませんでした。ブラウザのクリップボード権限を確認してください。", "error");
+  }
 }
 
 function printPdf() {
