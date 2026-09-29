@@ -17,15 +17,15 @@
         <div class="summary-strip" aria-live="polite">
           <div>
             <span>勤務時間</span>
-            <strong>09:00-17:40</strong>
+            <strong id="work-hours">09:00-17:40</strong>
           </div>
           <div>
             <span>休憩</span>
-            <strong>11:50-12:40</strong>
+            <strong id="break-hours">11:50-12:40</strong>
           </div>
           <div>
             <span>1日</span>
-            <strong>470分</strong>
+            <strong id="daily-minutes">470分</strong>
           </div>
         </div>
       </section>
@@ -35,7 +35,7 @@
           <div class="panel-header">
             <div>
               <h2>入力</h2>
-              <p>契約は上から順に連続して割り当てます。</p>
+              <p>契約は上から順に連続して割り当てます。月140時間に満たない場合は、勤務日に不足分を均等に追加します。</p>
             </div>
             <div class="input-actions">
               <button class="ghost-button" type="button" id="import-clipboard">インポート</button>
@@ -64,7 +64,7 @@
           </div>
 
           <label class="field">
-            <span>追加の休業日</span>
+            <span>追加の休業日・有給</span>
             <textarea id="manual-holidays" rows="3" placeholder="YYYY-MM-DD を1行ずつ入力"></textarea>
           </label>
 
@@ -80,7 +80,7 @@
           </div>
 
           <div id="messages" class="messages" role="status" aria-live="polite"></div>
-          <button class="primary-button" type="submit">CSVを生成</button>
+          <button class="primary-button" type="submit" id="generate-button">CSVを生成</button>
         </form>
 
         <section class="panel output-panel" aria-labelledby="output-title">

@@ -3,6 +3,7 @@ const BREAK_START = 11 * 60 + 50;
 const BREAK_END = 12 * 60 + 40;
 const WORK_END = 17 * 60 + 40;
 const DAILY_WORK_MINUTES = 470;
+const MIN_MONTHLY_WORK_MINUTES = 140 * 60;
 const CONTRACT_COUNT = 8;
 const HOLIDAY_API = "https://holidays-jp.github.io/api/v1/date.json";
 
@@ -37,26 +38,33 @@ const elements = {
   fitOnePage: document.querySelector("#fit-one-page"),
   hideContractNamePdf: document.querySelector("#hide-contract-name-pdf"),
   pdfExportRoot: document.querySelector("#pdf-export-root"),
+  generateButton: document.querySelector("#generate-button"),
+  workHours: document.querySelector("#work-hours"),
+  breakHours: document.querySelector("#break-hours"),
+  dailyMinutes: document.querySelector("#daily-minutes"),
 };
 
 let holidayCache = null;
 let lastExport = null;
+let holidayLoad = null;
 
 function init() {
   elements.targetMonth.value = getCurrentMonthValue();
   renderContracts(defaultContracts);
   updateRatioTotal();
-  void loadHolidays();
+  holidayLoad = loadHolidays();
 
   elements.form.addEventListener("submit", (event) => {
     event.preventDefault();
     generate();
   });
   elements.contractBody.addEventListener("input", updateRatioTotal);
+  elements.form.addEventListener("input", clearOutput);
   elements.importClipboard.addEventListener("click", importFromClipboard);
   elements.resetContracts.addEventListener("click", () => {
     renderContracts(defaultContracts);
     updateRatioTotal();
+    clearOutput();
     clearMessage();
   });
   elements.printPdf.addEventListener("click", printPdf);
@@ -184,8 +192,10 @@ function readContracts({ allowInvalid = false } = {}) {
   });
 }
 
-function generate() {
+async function generate() {
+  elements.generateButton.disabled = true;
   try {
+    await holidayLoad;
     const monthValue = elements.targetMonth.value;
     if (!monthValue) {
       throw new Error("対象月を選択してください。");
@@ -199,12 +209,13 @@ function generate() {
 
     const [year, month] = monthValue.split("-").map(Number);
     const holidaySet = buildHolidaySet();
-    const workdays = getWorkdays(year, month, holidaySet);
-    if (workdays.length === 0) {
+    const dates = getWorkdays(year, month, holidaySet);
+    if (dates.length === 0) {
       throw new Error("対象月に営業日がありません。追加の休業日を確認してください。");
     }
 
-    const totalMinutes = workdays.length * DAILY_WORK_MINUTES;
+    const totalMinutes = Math.max(dates.length * DAILY_WORK_MINUTES, MIN_MONTHLY_WORK_MINUTES);
+    const workdays = buildWorkSchedule(dates, totalMinutes);
     const allocations = allocateMinutes(contracts, totalMinutes);
     const rows = buildRows(workdays, allocations);
     lastExport = { year, month, allocations, rows };
@@ -212,7 +223,10 @@ function generate() {
     renderOutput({ year, month, workdays, totalMinutes, allocations, rows });
     setMessage("生成しました。", "");
   } catch (error) {
+    clearOutput();
     setMessage(error.message, "error");
+  } finally {
+    elements.generateButton.disabled = false;
   }
 }
 
@@ -248,6 +262,22 @@ function getWorkdays(year, month, holidaySet) {
   }
 
   return days;
+}
+
+function buildWorkSchedule(workdays, totalMinutes) {
+  const dailyMinutes = Math.floor(totalMinutes / workdays.length);
+  const remainder = totalMinutes % workdays.length;
+
+  return workdays.map((day, index) => {
+    // One-minute remainders go to the earliest workdays.
+    const workMinutes = dailyMinutes + (index < remainder ? 1 : 0);
+    const breakMinutes = workMinutes >= 480 ? 60 : BREAK_END - BREAK_START;
+    const workEnd = WORK_START + workMinutes + breakMinutes;
+    if (workEnd > 24 * 60) {
+      throw new Error("勤務日が少なすぎるため、140時間への調整が日付をまたぎます。追加の休業日を確認してください。");
+    }
+    return { ...day, workMinutes, breakEnd: BREAK_START + breakMinutes, workEnd };
+  });
 }
 
 function allocateMinutes(contracts, totalMinutes) {
@@ -288,16 +318,17 @@ function buildRows(workdays, allocations) {
         throw new Error("割り当てが月内の営業日を超えました。");
       }
 
-      cursor = normalizeCursor(cursor);
-      if (cursor >= WORK_END) {
+      const day = workdays[dayIndex];
+      cursor = normalizeCursor(cursor, day.breakEnd);
+      if (cursor >= day.workEnd) {
         dayIndex += 1;
         cursor = WORK_START;
         continue;
       }
 
-      const available = workingMinutesBetween(cursor, WORK_END);
+      const available = workingMinutesBetween(cursor, day.workEnd, day.breakEnd);
       const chunk = Math.min(minutesLeft, available);
-      const end = addWorkingMinutes(cursor, chunk);
+      const end = addWorkingMinutes(cursor, chunk, day);
       rows.push({
         date: workdays[dayIndex].csvDate,
         start_time: formatTime(cursor),
@@ -309,7 +340,7 @@ function buildRows(workdays, allocations) {
       minutesLeft -= chunk;
       cursor = end;
 
-      if (cursor >= WORK_END) {
+      if (cursor >= day.workEnd) {
         dayIndex += 1;
         cursor = WORK_START;
       }
@@ -319,15 +350,15 @@ function buildRows(workdays, allocations) {
   return rows;
 }
 
-function normalizeCursor(minutes) {
-  if (minutes >= BREAK_START && minutes < BREAK_END) {
-    return BREAK_END;
+function normalizeCursor(minutes, breakEnd = BREAK_END) {
+  if (minutes >= BREAK_START && minutes < breakEnd) {
+    return breakEnd;
   }
   return minutes;
 }
 
-function workingMinutesBetween(start, end) {
-  const normalizedStart = normalizeCursor(start);
+function workingMinutesBetween(start, end, breakEnd = BREAK_END) {
+  const normalizedStart = normalizeCursor(start, breakEnd);
   if (normalizedStart >= end) {
     return 0;
   }
@@ -335,31 +366,43 @@ function workingMinutesBetween(start, end) {
   let minutes = end - normalizedStart;
   const breakOverlap = Math.max(
     0,
-    Math.min(end, BREAK_END) - Math.max(normalizedStart, BREAK_START),
+    Math.min(end, breakEnd) - Math.max(normalizedStart, BREAK_START),
   );
   return minutes - breakOverlap;
 }
 
-function addWorkingMinutes(start, minutesToAdd) {
-  let cursor = normalizeCursor(start);
+function addWorkingMinutes(start, minutesToAdd, { workEnd = WORK_END, breakEnd = BREAK_END } = {}) {
+  let cursor = normalizeCursor(start, breakEnd);
   let remaining = minutesToAdd;
 
   while (remaining > 0) {
-    const nextStop = cursor < BREAK_START ? BREAK_START : WORK_END;
+    const nextStop = cursor < BREAK_START ? BREAK_START : workEnd;
     const available = nextStop - cursor;
     if (remaining <= available) {
       return cursor + remaining;
     }
 
     remaining -= available;
-    cursor = nextStop === BREAK_START ? BREAK_END : WORK_END;
+    cursor = nextStop === BREAK_START ? breakEnd : workEnd;
   }
 
   return cursor;
 }
 
 function renderOutput({ year, month, workdays, totalMinutes, allocations, rows }) {
-  elements.monthSummary.textContent = `${year}年${month}月のCSVです。`;
+  const addedMinutes = totalMinutes - workdays.length * DAILY_WORK_MINUTES;
+  elements.monthSummary.textContent = `${year}年${month}月のCSVです。${
+    addedMinutes > 0 ? `月140時間に調整（追加実働 ${formatDuration(addedMinutes)}）。` : ""
+  }`;
+  const minMinutes = Math.min(...workdays.map((day) => day.workMinutes));
+  const maxMinutes = Math.max(...workdays.map((day) => day.workMinutes));
+  const minEnd = Math.min(...workdays.map((day) => day.workEnd));
+  const maxEnd = Math.max(...workdays.map((day) => day.workEnd));
+  elements.workHours.textContent = `${formatTime(WORK_START)}-${formatTime(minEnd)}${
+    minEnd !== maxEnd ? `〜${formatTime(maxEnd)}` : ""
+  }`;
+  elements.breakHours.textContent = `${formatTime(BREAK_START)}-${formatTime(workdays[0].breakEnd)}`;
+  elements.dailyMinutes.textContent = `${minMinutes}${minMinutes !== maxMinutes ? `〜${maxMinutes}` : ""}分`;
   elements.workdayCount.textContent = workdays.length.toString();
   elements.totalMinutes.textContent = totalMinutes.toLocaleString("ja-JP");
   elements.rowCount.textContent = rows.length.toString();
@@ -398,6 +441,9 @@ function renderAllocationSummary(allocations) {
 
 function clearOutput() {
   lastExport = null;
+  elements.workHours.textContent = "09:00-17:40";
+  elements.breakHours.textContent = "11:50-12:40";
+  elements.dailyMinutes.textContent = "470分";
   elements.monthSummary.textContent = "対象月を選んで生成してください。";
   elements.workdayCount.textContent = "0";
   elements.totalMinutes.textContent = "0";
