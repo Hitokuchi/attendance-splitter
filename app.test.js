@@ -186,10 +186,10 @@ test("Zero workdays and adjustments past midnight show errors and disable export
   }
 });
 
-test("Contract JSON covers all workdays with contract-specific times and absences", async () => {
+test("Contract JSON includes manual leave as absences, with contract-specific times on workdays", async () => {
   const { app, elements } = loadApp();
   elements.get("#target-month").value = "2026-06";
-  elements.get("#manual-holidays").value = "2026-06-02\n2026-06-03\n2026-06-04\n2026-06-05";
+  elements.get("#manual-holidays").value = "2026-06-02\n2026-06-03\n2026-06-04\n2026-06-05\n2026-06-02\n2026-06-01\n2026-06-06\n2026-07-01";
   vm.runInContext('holidayCache = {"2026-06-01": "祝日"}', app);
   app.readContracts = () => [{ name: "A", no: "A", ratio: 0.1 }, { name: "B", no: "B", ratio: 0.9 }];
   const writes = [];
@@ -198,20 +198,25 @@ test("Contract JSON covers all workdays with contract-specific times and absence
   await app.copyAttendanceJson(0);
   assert.equal(writes.length, 1);
   const attendance = JSON.parse(writes[0]);
-  assert.equal(attendance.length, 17);
-  assert.ok(vm.runInContext("lastExport.rows.length", app) > attendance.length);
-  assert.deepEqual(attendance[0], { date: "2026-06-08", type: "normal", start: "09:00", end: "18:15", break: "01:00" });
-  assert.deepEqual(attendance[1], { date: "2026-06-09", type: "normal", start: "09:00", end: "15:45", break: "01:00" });
-  assert.deepEqual(attendance[2], { date: "2026-06-10", type: "absence" });
-  assert.equal(new Set(attendance.map((day) => day.date)).size, 17);
+  assert.equal(attendance.length, 21);
+  assert.equal(vm.runInContext("lastExport.workdays.length", app), 17);
+  assert.ok(vm.runInContext("lastExport.rows.every(row => !/^2026\\/06\\/0[1-5]$/.test(row.date))", app));
+  assert.deepEqual(attendance.slice(0, 4), [2, 3, 4, 5].map((day) => ({ date: `2026-06-0${day}`, type: "absence" })));
+  assert.ok(attendance.every((day) => !["2026-06-01", "2026-06-06", "2026-07-01"].includes(day.date)));
+  assert.deepEqual(attendance[4], { date: "2026-06-08", type: "normal", start: "09:00", end: "18:15", break: "01:00" });
+  assert.deepEqual(attendance[5], { date: "2026-06-09", type: "normal", start: "09:00", end: "15:45", break: "01:00" });
+  assert.deepEqual(attendance[6], { date: "2026-06-10", type: "absence" });
+  assert.equal(new Set(attendance.map((day) => day.date)).size, 21);
+  assert.deepEqual(attendance.map((day) => day.date), attendance.map((day) => day.date).sort());
   assert.ok(attendance.every((day) => Object.keys(day).join(",") === (day.type === "normal" ? "date,type,start,end,break" : "date,type")));
   assert.equal(attendance.filter((day) => day.type === "normal").reduce((total, day) => total + minutes(day.end) - minutes(day.start) - minutes(day.break), 0), 840);
-  assert.match(elements.get("#messages").textContent, /17日分.*コピーしました/);
+  assert.match(elements.get("#messages").textContent, /21日分.*コピーしました/);
   assert.match(elements.get("#messages").textContent, /A（A）/);
   await app.copyAttendanceJson(1);
   const otherContract = JSON.parse(writes[1]);
-  assert.deepEqual(otherContract[0], { date: "2026-06-08", type: "absence" });
-  assert.deepEqual(otherContract[1], { date: "2026-06-09", type: "normal", start: "15:45", end: "18:15", break: "00:00" });
+  assert.deepEqual(otherContract.slice(0, 4), attendance.slice(0, 4));
+  assert.deepEqual(otherContract[4], { date: "2026-06-08", type: "absence" });
+  assert.deepEqual(otherContract[5], { date: "2026-06-09", type: "normal", start: "15:45", end: "18:15", break: "00:00" });
   app.clearOutput();
   assert.match(elements.get("#allocation-body").innerHTML, /colspan="6"/);
   await app.copyAttendanceJson(0);
@@ -257,8 +262,9 @@ test("Eight contract exports stay distinct with duplicate names and numbers, zer
   for (let index = 0; index < 8; index += 1) {
     await app.copyAttendanceJson(index);
     const attendance = JSON.parse(writes[index]);
-    assert.equal(attendance.length, 17);
-    assert.equal(new Set(attendance.map((day) => day.date)).size, 17);
+    assert.equal(attendance.length, 22);
+    assert.equal(new Set(attendance.map((day) => day.date)).size, 22);
+    assert.deepEqual(attendance.slice(0, 5), [1, 2, 3, 4, 5].map((day) => ({ date: `2026-06-0${day}`, type: "absence" })));
     for (const day of attendance) {
       assert.deepEqual(Object.keys(day), day.type === "normal" ? ["date", "type", "start", "end", "break"] : ["date", "type"]);
     }
@@ -267,7 +273,7 @@ test("Eight contract exports stay distinct with duplicate names and numbers, zer
   }
   assert.equal(new Set(writes).size, 8);
   assert.ok(JSON.parse(writes[0]).every((day) => day.type === "absence"));
-  assert.deepEqual(JSON.parse(writes[1])[0], { date: "2026-06-08", type: "normal", start: "09:00", end: "09:01", break: "00:00" });
+  assert.deepEqual(JSON.parse(writes[1])[5], { date: "2026-06-08", type: "normal", start: "09:00", end: "09:01", break: "00:00" });
   const writeCount = writes.length;
   await app.copyAttendanceJson(-1);
   await app.copyAttendanceJson(8);

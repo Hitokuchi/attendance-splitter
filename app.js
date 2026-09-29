@@ -273,7 +273,8 @@ async function generate() {
     const workdays = buildWorkSchedule(dates, totalMinutes);
     const allocations = allocateMinutes(contracts, totalMinutes);
     const rows = buildRows(workdays, allocations);
-    lastExport = { year, month, workdays, allocations, rows };
+    const attendanceDates = getWorkdays(year, month, new Set(Object.keys(holidayCache ?? {})));
+    lastExport = { year, month, workdays, attendanceDates, allocations, rows };
 
     renderOutput({ year, month, workdays, totalMinutes, allocations, rows });
     setMessage("生成しました。", "");
@@ -509,11 +510,11 @@ function clearOutput() {
   elements.pdfExportRoot.innerHTML = "";
 }
 
-function buildContractAttendance(workdays, rows, contractIndex) {
+function buildContractAttendance(dates, rows, contractIndex) {
   const contractRows = new Map(
     rows.filter((row) => row.contract_index === contractIndex).map((row) => [row.date, row]),
   );
-  return workdays.map((day) => {
+  return dates.map((day) => {
     const row = contractRows.get(day.csvDate);
     if (!row) return { date: day.isoDate, type: "absence" };
     return {
@@ -530,7 +531,7 @@ async function copyAttendanceJson(contractIndex) {
   if (!lastExport) return;
   const allocation = lastExport.allocations.find((item) => item.index === contractIndex);
   if (!allocation) return;
-  const attendance = buildContractAttendance(lastExport.workdays, lastExport.rows, contractIndex);
+  const attendance = buildContractAttendance(lastExport.attendanceDates, lastExport.rows, contractIndex);
 
   try {
     await navigator.clipboard.writeText(JSON.stringify(attendance, null, 2));
